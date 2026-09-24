@@ -1,0 +1,150 @@
+/* ====================================
+   INSURANCE CARD UI
+==================================== */
+
+.insurance-card-area {
+  background: #ffffff;
+  border: 1px solid #e8e8e8;
+  border-radius: 14px;
+  padding: 12px 24px;
+
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+
+  margin-bottom: 22px;
+  height: 100%;
+
+  transition: all 0.35s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.cards-section-wrapper {
+  margin-bottom: 15px;
+}
+
+.insurance-card-area:hover {
+  border-color: #d4d822;
+  transform: translateY(-4px);
+  box-shadow: 0px 10px 30px rgba(0, 0, 0, 0.06);
+}
+
+/* ICON */
+
+.insurance-card-area .icon {
+  width: 62px;
+  height: 62px;
+  min-width: 62px;
+
+  background: #f5f7fb;
+  border-radius: 50%;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  transition: all 0.3s ease;
+}
+
+.insurance-card-area:hover .icon {
+  background: #eef3ff;
+}
+
+.insurance-card-area .icon i {
+  font-size: 24px;
+  color: #0b2c5f;
+  line-height: 1;
+}
+
+/* CONTENT */
+
+.insurance-card-area .content {
+  flex: 1;
+}
+
+.insurance-card-area .content h4 {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 700;
+  color: #081120;
+
+  margin-bottom: 8px;
+}
+
+.insurance-card-area .content p {
+  font-size: 16px;
+  line-height: 28px;
+  color: #6b7280;
+
+  margin: 0;
+}
+
+/* ====================================
+   TABLET
+==================================== */
+
+@media (max-width: 991px) {
+  .insurance-card-area {
+    padding: 20px;
+    gap: 16px;
+  }
+
+  .insurance-card-area .content h4 {
+    font-size: 18px;
+    line-height: 26px;
+  }
+
+  .insurance-card-area .content p {
+    font-size: 15px;
+    line-height: 26px;
+  }
+}
+
+/* ====================================
+   MOBILE
+==================================== */
+
+@media (max-width: 767px) {
+  .insurance-card-area {
+    padding: 18px;
+    gap: 14px;
+    border-radius: 12px;
+  }
+
+  .insurance-card-area .icon {
+    width: 54px;
+    height: 54px;
+    min-width: 54px;
+  }
+
+  .insurance-card-area .icon i {
+    font-size: 20px;
+  }
+
+  .insurance-card-area .content h4 {
+    font-size: 17px;
+    line-height: 24px;
+    margin-bottom: 6px;
+  }
+
+  .insurance-card-area .content p {
+    font-size: 14px;
+    line-height: 24px;
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

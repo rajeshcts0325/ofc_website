@@ -1,0 +1,545 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+/////////////////////
+// ENUMS
+/////////////////////
+
+enum Role {
+  SUPPLIER
+  AGENCY
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+enum OnboardingStatus {
+  EMAIL_VERIFICATION_PENDING
+  BUSINESS_PROFILE_PENDING
+  KYC_PENDING
+  KYC_UNDER_REVIEW
+  KYC_REJECTED
+  SUBSCRIPTION_PENDING
+  ACTIVE
+}
+
+enum BusinessType {
+  INDIVIDUAL
+  PROPRIETORSHIP
+  PARTNERSHIP
+  LLP
+  PRIVATE_LIMITED
+  PUBLIC_LIMITED
+  OTHER
+}
+
+enum KycStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SUBMITTED
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+  CORRECTION_REQUIRED
+}
+
+enum KycDocumentType {
+  BUSINESS_REGISTRATION
+  GST_CERTIFICATE
+  PAN_CARD
+  ADDRESS_PROOF
+  BUSINESS_ADDRESS_PROOF
+  IDENTITY_PROOF
+  AUTHORIZED_PERSON_ID
+  BANK_PROOF
+  LICENSE
+  OTHER
+}
+
+enum KycDocumentStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum KycReviewDecision {
+  APPROVED
+  REJECTED
+  CORRECTION_REQUIRED
+}
+
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
+  FAILED
+  CANCELLED
+  PAUSED
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
+enum PaymentStatus {
+  CREATED
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  IN_PROGRESS
+  CLOSED
+  REJECTED
+}
+
+enum LeadPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum LeadType {
+  CONTACT
+  ENQUIRY
+  MATERIAL_INQUIRY
+  EQUIPMENT_RENTAL
+  INSURANCE
+  FINANCE
+  SERVICE_REQUEST
+  GENERAL
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  REJECTED
+}
+
+/////////////////////
+// USER
+/////////////////////
+
+model User {
+  id               String           @id @default(uuid())
+  email            String           @unique
+  password         String
+  role             Role
+  status           UserStatus       @default(ACTIVE)
+  onboardingStatus OnboardingStatus @default(BUSINESS_PROFILE_PENDING)
+  emailVerifiedAt  DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  profile              Profile?
+  company              Company?
+  subscriptions       Subscription[]
+  assignedLeads       Lead[]
+  products            Product[]
+  passwordResetTokens PasswordResetToken[]
+  kycReviews          KycReview[]
+  payments            Payment[]
+
+  @@index([email])
+  @@index([role])
+  @@index([status])
+  @@index([onboardingStatus])
+}
+
+/////////////////////
+// PROFILE
+/////////////////////
+
+model Profile {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  fullName  String
+  phone     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/////////////////////
+// COMPANY
+/////////////////////
+
+model Company {
+  id                 String      @id @default(uuid())
+  userId             String      @unique
+  name               String
+  businessType       BusinessType @default(OTHER)
+  gstNumber          String?
+  panNumber          String?
+  registrationNumber String?
+  category           String?
+  experience         Int?
+  description        String?
+  website            String?
+  businessEmail      String?
+  businessPhone      String?
+  address            String?
+  stateId            String?
+  cityId             String?
+
+  state State? @relation(fields: [stateId], references: [id], onDelete: SetNull)
+  city  City?  @relation(fields: [cityId], references: [id], onDelete: SetNull)
+
+  onboardingCompleted Boolean @default(false)
+
+  kycApplication KycApplication?
+  products       Product[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([name])
+  @@index([gstNumber])
+  @@index([panNumber])
+  @@index([stateId])
+  @@index([cityId])
+}
+
+////////////////////////////
+// KYC APPLICATION
+////////////////////////////
+
+model KycApplication {
+  id                  String    @id @default(uuid())
+  companyId           String    @unique
+  status              KycStatus @default(NOT_STARTED)
+  submittedAt        DateTime?
+  verifiedAt         DateTime?
+  rejectedAt         DateTime?
+  rejectionReason     String?
+  correctionRequired  Boolean   @default(false)
+  submittedVersion    Int       @default(1)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  company   Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  documents KycDocument[]
+  reviews   KycReview[]
+
+  @@index([companyId])
+  @@index([status])
+}
+
+////////////////////////////
+// KYC DOCUMENT
+////////////////////////////
+
+model KycDocument {
+  id                String              @id @default(uuid())
+  kycApplicationId  String
+  documentType      KycDocumentType
+  documentName      String?
+  fileUrl           String
+  storagePath       String?
+  documentNumber    String?
+  status            KycDocumentStatus   @default(PENDING)
+  rejectionReason   String?
+  uploadedAt        DateTime            @default(now())
+  verifiedAt        DateTime?
+
+  kycApplication KycApplication @relation(fields: [kycApplicationId], references: [id], onDelete: Cascade)
+
+  @@index([kycApplicationId])
+  @@index([documentType])
+  @@index([status])
+}
+
+////////////////////////////
+// KYC REVIEW
+////////////////////////////
+
+model KycReview {
+  id               String             @id @default(uuid())
+  kycApplicationId String
+  reviewerId       String?
+  decision         KycReviewDecision
+  remarks          String?
+  createdAt        DateTime           @default(now())
+
+  kycApplication KycApplication @relation(fields: [kycApplicationId], references: [id], onDelete: Cascade)
+  reviewer       User?          @relation(fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([kycApplicationId])
+  @@index([reviewerId])
+  @@index([decision])
+}
+
+////////////////////////////
+// SUBSCRIPTION PLAN
+////////////////////////////
+
+model SubscriptionPlan {
+  id                  String       @id @default(uuid())
+  name                String
+  slug                String       @unique
+  description         String?
+  price               Float
+  billingCycle        BillingCycle
+  isActive            Boolean      @default(true)
+  razorpayPlanId      String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  subscriptions Subscription[]
+
+  @@index([isActive])
+}
+
+////////////////////////////
+// SUBSCRIPTION
+////////////////////////////
+
+model Subscription {
+  id                     String             @id @default(uuid())
+  userId                 String
+  planId                 String
+  status                 SubscriptionStatus @default(PENDING)
+  amount                 Float
+  billingCycle           BillingCycle
+  razorpaySubscriptionId String?
+  startDate              DateTime?
+  endDate                DateTime?
+  cancelledAt            DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  user User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  payments Payment[]
+
+  @@index([userId])
+  @@index([planId])
+  @@index([status])
+  @@index([razorpaySubscriptionId])
+}
+
+////////////////////////////
+// PAYMENT
+////////////////////////////
+
+model Payment {
+  id                  String        @id @default(uuid())
+  userId              String
+  subscriptionId      String?
+  amount              Float
+  currency            String        @default("INR")
+  status              PaymentStatus @default(CREATED)
+  razorpayOrderId     String?
+  razorpayPaymentId   String?
+  razorpaySignature   String?
+  paidAt              DateTime?
+  failureReason       String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([subscriptionId])
+  @@index([status])
+  @@index([razorpayOrderId])
+  @@index([razorpayPaymentId])
+}
+
+////////////////////////////
+// LEAD MODEL
+////////////////////////////
+
+model Lead {
+  id            String     @id @default(uuid())
+  name          String?
+  email         String?
+  phone         String?
+  subject       String?
+  message       String?
+  formType      LeadType
+  status        LeadStatus @default(NEW)
+  priority      LeadPriority @default(MEDIUM)
+  sourcePage    String?
+  sourceWebsite String?
+  ipAddress     String?
+  formData      Json?
+  adminNotes    String?
+  assignedToId  String?
+
+  assignedTo User? @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([formType])
+  @@index([status])
+  @@index([priority])
+  @@index([assignedToId])
+  @@index([createdAt])
+  @@index([phone])
+  @@index([email])
+}
+
+////////////////////////////
+// STATE MODEL
+////////////////////////////
+
+model State {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  slug      String   @unique
+  cities    City[]
+  companies Company[]
+  products  Product[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+////////////////////////////
+// CITY MODEL
+////////////////////////////
+
+model City {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String
+  stateId   String
+
+  state State @relation(fields: [stateId], references: [id], onDelete: Cascade)
+
+  companies Company[]
+  products  Product[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([slug, stateId])
+  @@index([stateId])
+}
+
+////////////////////////////
+// PASSWORD RESET MODEL
+////////////////////////////
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+////////////////////////////
+// PRODUCTS & ITEMS MODEL
+////////////////////////////
+
+model Product {
+  id            String  @id @default(uuid())
+  userId        String
+  companyId     String?
+  title         String
+  slug          String  @unique
+  description   String?
+  categoryId    String?
+  subCategoryId String?
+
+  category    ProductCategory?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  subCategory ProductSubCategory? @relation(fields: [subCategoryId], references: [id], onDelete: SetNull)
+
+  price        Float?
+  unit         String?
+  stock        Int?
+  brand        String?
+  productModel String?
+  imageUrl     String?
+  imagePublicId String?
+  status       ProductStatus @default(DRAFT)
+
+  stateId String?
+  cityId  String?
+
+  state State? @relation(fields: [stateId], references: [id], onDelete: SetNull)
+  city  City?  @relation(fields: [cityId], references: [id], onDelete: SetNull)
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([companyId])
+  @@index([categoryId])
+  @@index([subCategoryId])
+  @@index([status])
+  @@index([stateId])
+  @@index([cityId])
+  @@index([createdAt])
+}
+
+////////////////////////////
+// PRODUCTS CATEGORY
+////////////////////////////
+
+model ProductCategory {
+  id            String               @id @default(uuid())
+  name          String
+  slug          String               @unique
+  subCategories ProductSubCategory[]
+  products      Product[]
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@index([name])
+}
+
+////////////////////////////
+// SUB CATEGORY
+////////////////////////////
+
+model ProductSubCategory {
+  id         String @id @default(uuid())
+  categoryId String
+  name       String
+  slug       String
+
+  category ProductCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([slug, categoryId])
+  @@index([categoryId])
+  @@index([name])
+}
