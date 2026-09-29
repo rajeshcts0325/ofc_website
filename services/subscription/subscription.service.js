@@ -3,7 +3,22 @@ import { razorpay } from "@/lib/razorpay";
 import crypto from "crypto";
 import { authMiddleware } from "@/middleware/auth.middleware";
 
-export const createSubscriptionService = async (req) => {
+export const getPlansService = async () => {
+    return await prisma.subscriptionPlan.findMany({
+        where: { isActive: true },
+        orderBy: { price: "asc" },
+        select: {
+            id: true,
+            name: true,
+            slug: true,
+            description: true,
+            price: true,
+            billingCycle: true,
+        },
+    });
+};
+
+export const createSubscriptionService = async (req, body = {}) => {
     const authUser = await authMiddleware(req);
 
     if (!authUser) {
@@ -55,16 +70,44 @@ export const createSubscriptionService = async (req) => {
         throw error;
     }
 
-    const planName = process.env.MEMBERSHIP_PLAN_NAME || "Basic Membership";
-    const amount = Number(process.env.MEMBERSHIP_AMOUNT || 999);
-    const amountInPaise = amount * 100;
+    if (user.onboardingStatus !== "SUBSCRIPTION_PENDING") {
+        const error = new Error("Your company must be KYC verified before subscribing");
+        error.statusCode = 403;
+        throw error;
+    }
+
+    const { planId } = body;
+
+    if (!planId) {
+        const error = new Error("Please choose a subscription plan");
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const plan = await prisma.subscriptionPlan.findFirst({
+        where: { id: planId, isActive: true },
+    });
+
+    if (!plan) {
+        const error = new Error("Selected plan is not available");
+        error.statusCode = 404;
+        throw error;
+    }
+
+    const amountInPaise = Math.round(plan.price * 100);
+
+    // cancel stale unpaid attempts so they don't pile up
+    await prisma.subscription.updateMany({
+        where: { userId: user.id, status: "PENDING" },
+        data: { status: "CANCELLED", cancelledAt: new Date() },
+    });
 
     const subscription = await prisma.subscription.create({
         data: {
             userId: user.id,
-            planName,
-            amount,
-            status: "PENDING",
+            planId: plan.id,
+            amount: plan.price,
+            billingCycle: plan.billingCycle,
         },
     });
 
@@ -75,7 +118,17 @@ export const createSubscriptionService = async (req) => {
         notes: {
             subscriptionId: subscription.id,
             userId: user.id,
-            planName,
+            planId: plan.id,
+        },
+    });
+
+    await prisma.payment.create({
+        data: {
+            userId: user.id,
+            subscriptionId: subscription.id,
+            amount: plan.price,
+            currency: "INR",
+            razorpayOrderId: razorpayOrder.id,
         },
     });
 
@@ -85,10 +138,16 @@ export const createSubscriptionService = async (req) => {
         razorpayKey: process.env.RAZORPAY_KEY,
         amount: amountInPaise,
         currency: "INR",
-        planName,
+        planName: plan.name,
     };
 };
 
+const addBillingPeriod = (date, cycle) => {
+    const d = new Date(date);
+    if (cycle === "YEARLY") d.setFullYear(d.getFullYear() + 1);
+    else d.setMonth(d.getMonth() + 1);
+    return d;
+};
 
 export const verifyPaymentService = async (body, req) => {
     const authUser = await authMiddleware(req);
@@ -123,13 +182,6 @@ export const verifyPaymentService = async (body, req) => {
             userId: authUser.id,
             status: "PENDING",
         },
-        include: {
-            user: {
-                include: {
-                    company: true,
-                },
-            },
-        },
     });
 
     if (!subscription) {
@@ -138,9 +190,18 @@ export const verifyPaymentService = async (body, req) => {
         throw error;
     }
 
-    if (!subscription.user.company) {
-        const error = new Error("Business profile not found");
-        error.statusCode = 400;
+    const payment = await prisma.payment.findFirst({
+        where: {
+            razorpayOrderId,
+            subscriptionId: subscription.id,
+            userId: authUser.id,
+            status: { in: ["CREATED", "PENDING"] },
+        },
+    });
+
+    if (!payment) {
+        const error = new Error("Payment record not found");
+        error.statusCode = 404;
         throw error;
     }
 
@@ -150,41 +211,41 @@ export const verifyPaymentService = async (body, req) => {
         .digest("hex");
 
     if (generatedSignature !== razorpaySignature) {
+        await prisma.payment.update({
+            where: { id: payment.id },
+            data: { status: "FAILED", failureReason: "Invalid payment signature" },
+        });
+
         const error = new Error("Invalid payment signature");
         error.statusCode = 400;
         throw error;
     }
 
     const startDate = new Date();
-    const endDate = new Date();
-    endDate.setFullYear(endDate.getFullYear() + 1);
+    const endDate = addBillingPeriod(startDate, subscription.billingCycle);
 
     const result = await prisma.$transaction(async (tx) => {
+        const updatedPayment = await tx.payment.update({
+            where: { id: payment.id },
+            data: {
+                status: "SUCCESS",
+                razorpayPaymentId,
+                razorpaySignature,
+                paidAt: new Date(),
+            },
+        });
+
         const updatedSubscription = await tx.subscription.update({
-            where: {
-                id: subscription.id,
-            },
-            data: {
-                status: "ACTIVE",
-                paymentId: razorpayPaymentId,
-                startDate,
-                endDate,
-            },
+            where: { id: subscription.id },
+            data: { status: "ACTIVE", startDate, endDate },
         });
 
-        const updatedCompany = await tx.company.update({
-            where: {
-                userId: authUser.id,
-            },
-            data: {
-                verificationStatus: "PENDING_APPROVAL",
-            },
+        await tx.user.update({
+            where: { id: authUser.id },
+            data: { onboardingStatus: "ACTIVE" },
         });
 
-        return {
-            subscription: updatedSubscription,
-            company: updatedCompany,
-        };
+        return { subscription: updatedSubscription, payment: updatedPayment };
     });
 
     return result;

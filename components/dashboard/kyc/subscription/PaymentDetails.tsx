@@ -1,14 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import toast from "react-hot-toast";
-import {
-    CreditCard,
-    ShieldCheck,
-    CheckCircle,
-    Clock,
-    IndianRupee,
-} from "lucide-react";
+import { CreditCard, ShieldCheck, CheckCircle, IndianRupee, Layers } from "lucide-react";
 import { useAuthStore } from "@/stores/useAuthStore";
 import "@/styles/dashboard/kyc/complete-profile.css";
 
@@ -18,194 +13,194 @@ declare global {
     }
 }
 
+type Plan = {
+    id: string;
+    name: string;
+    description?: string | null;
+    price: number;
+    billingCycle: "MONTHLY" | "YEARLY";
+};
+
+const PROFILE_ROUTE = "/dashboard/kyc/complete-profile"; // change to your KYC / profile page route
+
+const formatPrice = (p: Plan) =>
+    `₹${p.price.toLocaleString("en-IN")} / ${p.billingCycle === "YEARLY" ? "year" : "month"}`;
+
 export default function PaymentDetails() {
-    const [loading, setLoading] = useState(false);
     const { user, checkAuth } = useAuthStore();
 
+    const [plans, setPlans] = useState<Plan[]>([]);
+    const [selectedPlanId, setSelectedPlanId] = useState("");
+    const [loadingPlans, setLoadingPlans] = useState(false);
+    const [paying, setPaying] = useState(false);
+
+    /* ---------- status (driven by onboardingStatus) ---------- */
+    const onboarding = user?.onboardingStatus;
+    const isActive = onboarding === "ACTIVE";
+    const canPay = onboarding === "SUBSCRIPTION_PENDING";
+
+    const activeSubscription = user?.subscriptions?.find((s: any) => s.status === "ACTIVE");
+    const selectedPlan = plans.find((p) => p.id === selectedPlanId);
+
+    const KYC_REQUIRED_MSG = "Please complete your business verification first.";
+
+    const kycStepText =
+        onboarding === "KYC_UNDER_REVIEW" ? "Under admin review"
+            : onboarding === "KYC_REJECTED" ? "Correction required"
+                : "Pending";
+
+    const handleSelectPlan = (id: string) => {
+        if (!canPay) return toast.error(KYC_REQUIRED_MSG, { id: "kyc-required" });
+        setSelectedPlanId(id);
+    };
+
+    /* ---------- load Razorpay script once ---------- */
     useEffect(() => {
+        if (window.Razorpay) return;
         const script = document.createElement("script");
         script.src = "https://checkout.razorpay.com/v1/checkout.js";
         script.async = true;
         document.body.appendChild(script);
-
-        return () => {
-            document.body.removeChild(script);
-        };
     }, []);
 
-    const hasActiveSubscription = user?.subscriptions?.some(
-        (sub: any) => sub.status === "ACTIVE"
-    );
+    /* ---------- load plans (visible to everyone who is not active yet) ---------- */
+    useEffect(() => {
+        if (isActive) return;
 
-    const verificationStatus =
-        user?.company?.verificationStatus || "PROFILE_PENDING";
+        const loadPlans = async () => {
+            setLoadingPlans(true);
+            try {
+                const res = await fetch("/api/v1/subscription/plans", { credentials: "include" });
+                const json = await res.json();
+                if (!res.ok || !json.success) throw new Error(json.message || "Failed to load plans");
 
-    const latestSubscription = user?.subscriptions?.[0];
+                setPlans(json.data || []);
+                if (canPay && json.data?.length === 1) setSelectedPlanId(json.data[0].id);
+            } catch (err: any) {
+                toast.error(err.message || "Unable to load plans");
+            } finally {
+                setLoadingPlans(false);
+            }
+        };
 
-    const subscriptionStatus = latestSubscription?.status || "PENDING";
+        loadPlans();
+    }, [isActive, canPay]);
 
-    const shouldShowPayment =
-        !hasActiveSubscription || subscriptionStatus === "EXPIRED";
-
-    const isPendingApproval =
-        hasActiveSubscription &&
-        (verificationStatus === "PROFILE_PENDING" ||
-            verificationStatus === "PENDING_APPROVAL");
-
-    const isVerified =
-        hasActiveSubscription && verificationStatus === "VERIFIED";
-
+    /* ---------- payment ---------- */
     const handlePayment = async () => {
-        try {
-            setLoading(true);
+        if (!canPay) return toast.error(KYC_REQUIRED_MSG, { id: "kyc-required" });
+        if (!selectedPlanId) return toast.error("Please choose a plan first.");
+        if (!window.Razorpay) return toast.error("Payment gateway is still loading. Try again.");
 
+        setPaying(true);
+        try {
             const orderRes = await fetch("/api/v1/subscription/create-subscription", {
                 method: "POST",
+                headers: { "Content-Type": "application/json" },
                 credentials: "include",
+                body: JSON.stringify({ planId: selectedPlanId }),
             });
-
             const orderData = await orderRes.json();
-
             if (!orderRes.ok || !orderData.success) {
                 throw new Error(orderData.message || "Failed to create payment order");
             }
 
-            const paymentData = orderData.data;
+            const order = orderData.data;
 
-            const options = {
-                key: paymentData.razorpayKey,
-                amount: paymentData.amount,
-                currency: paymentData.currency,
+            const razorpay = new window.Razorpay({
+                key: order.razorpayKey,
+                amount: order.amount,
+                currency: order.currency,
                 name: "Off Contract",
-                description: paymentData.planName,
-                order_id: paymentData.razorpayOrderId,
+                description: order.planName,
+                order_id: order.razorpayOrderId,
 
-                handler: async function (response: any) {
-                    const verifyRes = await fetch("/api/v1/subscription/verify-payment", {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                        },
-                        credentials: "include",
-                        body: JSON.stringify({
-                            subscriptionId: paymentData.subscriptionId,
-                            razorpayOrderId: response.razorpay_order_id,
-                            razorpayPaymentId: response.razorpay_payment_id,
-                            razorpaySignature: response.razorpay_signature,
-                        }),
-                    });
+                handler: async (response: any) => {
+                    try {
+                        const verifyRes = await fetch("/api/v1/subscription/verify-payment", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            credentials: "include",
+                            body: JSON.stringify({
+                                subscriptionId: order.subscriptionId,
+                                razorpayOrderId: response.razorpay_order_id,
+                                razorpayPaymentId: response.razorpay_payment_id,
+                                razorpaySignature: response.razorpay_signature,
+                            }),
+                        });
+                        const verifyData = await verifyRes.json();
+                        if (!verifyRes.ok || !verifyData.success) {
+                            throw new Error(verifyData.message || "Payment verification failed");
+                        }
 
-                    const verifyData = await verifyRes.json();
-
-                    if (!verifyRes.ok || !verifyData.success) {
-                        throw new Error(
-                            verifyData.message || "Payment verification failed"
-                        );
+                        toast.success("Payment successful. Your account is now active.");
+                        await checkAuth(); // onboardingStatus -> ACTIVE
+                    } catch (err: any) {
+                        toast.error(err.message || "Payment verification failed");
+                    } finally {
+                        setPaying(false);
                     }
-
-                    toast.success("Payment successful. Pending admin approval.");
-                    await checkAuth();
                 },
+
+                modal: { ondismiss: () => setPaying(false) },
 
                 prefill: {
                     name: user?.profile?.fullName || "",
                     email: user?.email || "",
                     contact: user?.profile?.phone || "",
                 },
+                theme: { color: "#111827" },
+            });
 
-                theme: {
-                    color: "#111827",
-                },
-            };
-
-            const razorpay = new window.Razorpay(options);
             razorpay.open();
-        } catch (error: any) {
-            toast.error(error.message || "Payment failed");
-        } finally {
-            setLoading(false);
+        } catch (err: any) {
+            toast.error(err.message || "Payment failed");
+            setPaying(false);
         }
     };
+
+    /* ---------- copy ---------- */
+    const heading = isActive ? "Membership Active" : "Choose Your Plan";
+    const subheading = isActive
+        ? "Your payment is complete and full dashboard access is enabled."
+        : canPay
+            ? "Your company is verified. Select a plan and complete payment to activate your account."
+            : "Explore our plans. Payment unlocks after your business verification is approved.";
 
     return (
         <div className="dashboard-page">
             <div className="profile-page-header">
                 <div>
-                    <h1>
-                        {isVerified
-                            ? "Business Verified"
-                            : isPendingApproval
-                                ? "Submission Under Review"
-                                : "Complete Payment"}
-                    </h1>
-
-                    <p>
-                        {isVerified
-                            ? "Your business profile has been approved and dashboard access is enabled."
-                            : isPendingApproval
-                                ? "Your payment is completed. Admin verification is currently pending."
-                                : "Pay your membership fee to submit your business profile for admin verification."}
-                    </p>
+                    <h1>{heading}</h1>
+                    <p>{subheading}</p>
                 </div>
             </div>
-            {isPendingApproval && (
+
+            {/* ACTIVE */}
+            {isActive && (
                 <div className="profile-form-card">
                     <div className="profile-form-header">
-                        <h3>Submission Received</h3>
-                        <p>
-                            Your payment has been completed successfully. Your business profile is
-                            now pending admin verification.
-                        </p>
+                        <h3>Payment Successful</h3>
+                        <p>Thank you! Your membership is active.</p>
                     </div>
 
                     <div className="profile-review-grid">
-                        <div className="profile-review-item">
-                            <span>Payment Status</span>
-                            <strong>Paid</strong>
-                        </div>
-
-                        <div className="profile-review-item">
-                            <span>Verification Status</span>
-                            <strong>Pending Admin Approval</strong>
-                        </div>
-
-                        <div className="profile-review-item">
-                            <span>Plan Name</span>
-                            <strong>{latestSubscription?.planName || "Basic Membership"}</strong>
-                        </div>
-
-                        <div className="profile-review-item">
-                            <span>Next Step</span>
-                            <strong>Admin Review</strong>
-                        </div>
-                    </div>
-                </div>
-            )}
-            {isVerified && (
-                <div className="profile-form-card">
-                    <div className="profile-form-header">
-                        <h3>Business Verified</h3>
-                        <p>
-                            Congratulations! Your business profile has been approved and verified.
-                        </p>
-                    </div>
-
-                    <div className="profile-review-grid">
-                        <div className="profile-review-item">
-                            <span>Membership Status</span>
-                            <strong>Active</strong>
-                        </div>
-
-                        <div className="profile-review-item">
-                            <span>Verification Status</span>
-                            <strong>Verified</strong>
-                        </div>
-
                         <div className="profile-review-item">
                             <span>Plan</span>
-                            <strong>{latestSubscription?.planName}</strong>
+                            <strong>{activeSubscription?.plan?.name || "Active Plan"}</strong>
                         </div>
-
+                        <div className="profile-review-item">
+                            <span>Billing Cycle</span>
+                            <strong>{activeSubscription?.billingCycle || "N/A"}</strong>
+                        </div>
+                        <div className="profile-review-item">
+                            <span>Valid Till</span>
+                            <strong>
+                                {activeSubscription?.endDate
+                                    ? new Date(activeSubscription.endDate).toLocaleDateString("en-IN")
+                                    : "N/A"}
+                            </strong>
+                        </div>
                         <div className="profile-review-item">
                             <span>Dashboard Access</span>
                             <strong>Enabled</strong>
@@ -213,109 +208,117 @@ export default function PaymentDetails() {
                     </div>
                 </div>
             )}
-            {shouldShowPayment && (
-                <div className="profile-form-card">
-                    <div className="profile-form-header">
-                        <h3>Membership Plan</h3>
-                        <p>One-time membership payment for supplier/agency verification.</p>
-                    </div>
 
-                    <div className="profile-review-grid">
-                        <div className="profile-review-item">
-                            <span>Plan Name</span>
-                            <strong>Basic Membership</strong>
-                        </div>
-
-                        <div className="profile-review-item">
-                            <span>Amount</span>
-                            <strong>₹999</strong>
-                        </div>
-
-                        <div className="profile-review-item">
-                            <span>Payment Status</span>
-                            <strong>{hasActiveSubscription ? "Paid" : "Pending"}</strong>
-                        </div>
-
-                        <div className="profile-review-item">
-                            <span>Verification Status</span>
-                            <strong>{verificationStatus}</strong>
-                        </div>
-                    </div>
-
-                    <div className="profile-stepper-card" style={{ marginTop: "24px" }}>
+            {/* STEPPER + PLANS (always visible until active) */}
+            {!isActive && (
+                <>
+                    {/* STEPPER (top) */}
+                    <div className="profile-stepper-card">
                         <div className="profile-stepper-grid">
-                            <div className="profile-step-item completed">
+                            <div className={`profile-step-item ${canPay ? "completed" : "active"}`}>
                                 <div className="profile-step-circle">
-                                    <CheckCircle size={16} />
+                                    {canPay ? <CheckCircle size={16} /> : <ShieldCheck size={16} />}
                                 </div>
                                 <div className="profile-step-content">
-                                    <strong>Profile Completed</strong>
-                                    <span>Business details submitted</span>
+                                    <strong>KYC Verification</strong>
+                                    <span>{canPay ? "Company approved" : kycStepText}</span>
                                 </div>
                             </div>
 
-                            <div
-                                className={`profile-step-item ${hasActiveSubscription ? "completed" : "active"
-                                    }`}
-                            >
-                                <div className="profile-step-circle">
-                                    <CreditCard size={16} />
+                            <div className={`profile-step-item ${selectedPlan ? "completed" : canPay ? "active" : ""}`}>
+                                <div className="profile-step-circle"><Layers size={16} /></div>
+                                <div className="profile-step-content">
+                                    <strong>Choose Plan</strong>
+                                    <span>{selectedPlan ? selectedPlan.name : "Select a plan"}</span>
                                 </div>
+                            </div>
+
+                            <div className={`profile-step-item ${selectedPlan ? "active" : ""}`}>
+                                <div className="profile-step-circle"><CreditCard size={16} /></div>
                                 <div className="profile-step-content">
                                     <strong>Payment</strong>
-                                    <span>
-                                        {hasActiveSubscription ? "Payment completed" : "Pay now"}
-                                    </span>
+                                    <span>Pay securely</span>
                                 </div>
                             </div>
 
-                            <div
-                                className={`profile-step-item ${verificationStatus === "PENDING_APPROVAL" ? "active" : ""
-                                    } ${verificationStatus === "VERIFIED" ? "completed" : ""}`}
-                            >
-                                <div className="profile-step-circle">
-                                    <Clock size={16} />
-                                </div>
+                            <div className="profile-step-item">
+                                <div className="profile-step-circle"><CheckCircle size={16} /></div>
                                 <div className="profile-step-content">
-                                    <strong>Admin Approval</strong>
-                                    <span>Verification review</span>
-                                </div>
-                            </div>
-
-                            <div
-                                className={`profile-step-item ${verificationStatus === "VERIFIED" ? "completed" : ""
-                                    }`}
-                            >
-                                <div className="profile-step-circle">
-                                    <ShieldCheck size={16} />
-                                </div>
-                                <div className="profile-step-content">
-                                    <strong>Verified</strong>
-                                    <span>Dashboard access enabled</span>
+                                    <strong>Active</strong>
+                                    <span>Full platform access</span>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <div className="profile-form-actions">
-                        {!hasActiveSubscription ? (
+                    {/* PLANS + PAY (below) */}
+                    <div className="profile-form-card">
+                        <div className="profile-form-header">
+                            <h3>Subscription Plans</h3>
+                            <p>Pick the plan that fits your business.</p>
+                        </div>
+
+                        {!canPay && (
+                            <p style={{ marginBottom: 16 }}>
+                                Business verification is {kycStepText.toLowerCase()}.{" "}
+                                <Link href={PROFILE_ROUTE} style={{ textDecoration: "underline", fontWeight: 600 }}>
+                                    Complete verification
+                                </Link>{" "}
+                                to unlock payment.
+                            </p>
+                        )}
+
+                        {loadingPlans ? (
+                            <p>Loading plans...</p>
+                        ) : plans.length === 0 ? (
+                            <p>No plans are available right now. Please contact support.</p>
+                        ) : (
+                            <div className="profile-review-grid">
+                                {plans.map((plan) => {
+                                    const selected = plan.id === selectedPlanId;
+                                    return (
+                                        <div
+                                            key={plan.id}
+                                            role="button"
+                                            tabIndex={0}
+                                            aria-disabled={!canPay}
+                                            className="profile-review-item"
+                                            onClick={() => handleSelectPlan(plan.id)}
+                                            onKeyDown={(e) => e.key === "Enter" && handleSelectPlan(plan.id)}
+                                            style={{
+                                                cursor: canPay ? "pointer" : "not-allowed",
+                                                opacity: canPay ? 1 : 0.6,
+                                                border: selected ? "2px solid #111827" : undefined,
+                                            }}
+                                        >
+                                            <span>{plan.name}</span>
+                                            <strong>{formatPrice(plan)}</strong>
+                                            {plan.description && <small>{plan.description}</small>}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        <div className="profile-form-actions">
                             <button
                                 type="button"
                                 className="profile-btn-primary"
                                 onClick={handlePayment}
-                                disabled={loading}
+                                disabled={paying || (canPay && !selectedPlan)}
                             >
                                 <IndianRupee size={18} />
-                                {loading ? "Processing..." : "Pay ₹999 Now"}
+                                {paying
+                                    ? "Processing..."
+                                    : !canPay
+                                        ? "Complete Verification to Pay"
+                                        : selectedPlan
+                                            ? `Pay ₹${selectedPlan.price.toLocaleString("en-IN")} Now`
+                                            : "Select a plan to pay"}
                             </button>
-                        ) : (
-                            <button type="button" className="profile-btn-primary" disabled>
-                                <CheckCircle size={18} />
-                                Payment Completed
-                            </button>
-                        )}
+                        </div>
                     </div>
-                </div>
+                </>
             )}
         </div>
     );

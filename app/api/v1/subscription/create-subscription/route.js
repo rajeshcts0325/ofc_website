@@ -3,7 +3,8 @@ import { createSubscriptionController } from "@/controllers/subscription/subscri
 
 export async function POST(req) {
   try {
-    const result = await createSubscriptionController(req);
+    const body = await req.json().catch(() => ({}));
+    const result = await createSubscriptionController(req, body);
 
     return NextResponse.json(
       {
