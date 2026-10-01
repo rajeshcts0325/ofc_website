@@ -108,11 +108,11 @@ const menuItems = [
         href: "/dashboard/kyc/complete-payment",
         roles: ["SUPPLIER", "AGENCY"],
       },
-      {
-        label: "Admin Approval",
-        href: "/dashboard/kyc/admin-approval",
-        roles: ["SUPPLIER", "AGENCY"],
-      },
+      // {
+      //   label: "Admin Approval",
+      //   href: "/dashboard/kyc/admin-approval",
+      //   roles: ["SUPPLIER", "AGENCY"],
+      // },
     ],
   },
   {
