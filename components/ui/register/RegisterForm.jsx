@@ -22,7 +22,7 @@ const RegisterForm = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-  console.log("🔥 REGISTER FORM SUBMITTED");
+    console.log("🔥 REGISTER FORM SUBMITTED");
     console.log("FORM DATA:", form);
     try {
       // LOADING
@@ -159,6 +159,16 @@ const RegisterForm = () => {
                 Join our platform and start managing your properties, listings
                 and business activities from one powerful dashboard.
               </p>
+
+              {/* BACK TO HOME */}
+              <button
+                type="button"
+                onClick={() => router.push("/")}
+                className="back-home-btn d-flex align-items-center gap-2"
+              >
+                <span>←</span>
+                <span>Back to Home</span>
+              </button>
             </div>
 
             {/* FOOTER */}
