@@ -4,8 +4,13 @@ import React, { useState } from "react";
 import toast from "react-hot-toast";
 import { Mail, LockKeyhole, ArrowRight } from "lucide-react";
 import { FcGoogle } from "react-icons/fc";
+import { useRouter } from "next/navigation";
+
+
+
 
 const LoginForm = () => {
+  const router = useRouter();
   const [form, setForm] = useState({
     email: "",
     password: "",
@@ -59,6 +64,8 @@ const LoginForm = () => {
       toast.error("Something went wrong");
     }
   };
+
+
 
   return (
     <div
@@ -158,6 +165,15 @@ const LoginForm = () => {
                 Manage your account, properties and business connections easily
                 from one modern dashboard.
               </p>
+              {/* BACK TO HOME */}
+              <button
+                type="button"
+                onClick={() => router.push("/")}
+                className="back-home-btn d-flex align-items-center gap-2"
+              >
+                <span>←</span>
+                <span>Back to Home</span>
+              </button>
             </div>
 
             {/* FOOTER */}
@@ -374,7 +390,7 @@ const LoginForm = () => {
     </div>
   );
 
-  
+
 };
 
 export default LoginForm;
