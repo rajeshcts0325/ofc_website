@@ -14,7 +14,8 @@ import {
   ChevronRight,
   ShieldCheck,
   ChevronDown,
-  Package
+  Package,
+  ReceiptText 
 } from "lucide-react";
 
 type Role = "ADMIN" | "SUPPLIER" | "AGENCY";
@@ -67,6 +68,12 @@ const menuItems = [
     label: "KYC Details",
     href: "/dashboard/admin/vendors",
     icon: ShieldCheck,
+    roles: ["ADMIN"],
+  },
+  {
+    label: "Payments Details",
+    href: "/dashboard/admin/payments",
+    icon: ReceiptText,
     roles: ["ADMIN"],
   },
   {
