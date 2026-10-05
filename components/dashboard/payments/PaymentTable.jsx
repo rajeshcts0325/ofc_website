@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, Receipt } from "lucide-react";
+import { Eye, Receipt , UserRound , Mail } from "lucide-react";
 
 function formatDate(value) {
   if (!value) return "-";
@@ -114,8 +114,8 @@ export default function PaymentTable({
 
                     <td>
                       <div className="admin-payment-user">
-                        <strong>{item?.user?.name || "-"}</strong>
-                        <span>{item?.user?.email || "-"}</span>
+                        <strong><UserRound size={15} />{item?.user?.name || "-"}</strong>
+                        <span> <Mail size={14} />{item?.user?.email || "-"}</span>
                       </div>
                     </td>
 

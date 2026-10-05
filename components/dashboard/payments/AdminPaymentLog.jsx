@@ -184,12 +184,12 @@ export default function AdminPaymentLog() {
 
   return (
     <div className="admin-payment-wrapper">
-      <div className="admin-payment-header">
+      {/* <div className="admin-payment-header">
         <div>
           <h1>Payment Management</h1>
           <p>Manage and monitor all user payments and subscriptions.</p>
         </div>
-      </div>
+      </div> */}
 
       <PaymentSummary summary={summary} />
 
