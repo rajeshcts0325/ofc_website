@@ -352,7 +352,8 @@ model Payment {
   currency            String        @default("INR")
   status              PaymentStatus @default(CREATED)
   razorpayOrderId     String?
-  razorpayPaymentId   String?
+  razorpayPaymentId   String?  @unique 
+  razorpayInvoiceId   String? 
   razorpaySignature   String?
   paidAt              DateTime?
   failureReason       String?
@@ -366,7 +367,19 @@ model Payment {
   @@index([subscriptionId])
   @@index([status])
   @@index([razorpayOrderId])
-  @@index([razorpayPaymentId])
+}
+
+
+// NEW: webhook idempotency log
+model WebhookEvent {
+  id          String    @id @default(uuid())
+  eventId     String    @unique
+  eventType   String
+  processedAt DateTime?
+  error       String?
+  createdAt   DateTime  @default(now())
+
+  @@index([createdAt])
 }
 
 ////////////////////////////

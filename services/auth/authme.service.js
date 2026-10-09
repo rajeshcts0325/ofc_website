@@ -88,8 +88,10 @@ export const getMeService = async (req) => {
         subscriptions: {
           where: {
             status: "ACTIVE",
+            payments: { some: { status: "SUCCESS" } }, // active AND actually paid
           },
-
+          orderBy: { createdAt: "desc" },
+          take: 1,
           select: {
             id: true,
             amount: true,
@@ -98,7 +100,6 @@ export const getMeService = async (req) => {
             razorpaySubscriptionId: true,
             startDate: true,
             endDate: true,
-
             plan: {
               select: {
                 id: true,
@@ -109,13 +110,22 @@ export const getMeService = async (req) => {
                 billingCycle: true,
               },
             },
+            payments: {
+              where: { status: "SUCCESS" },
+              orderBy: { paidAt: "desc" },
+              take: 10,
+              select: {
+                id: true,
+                amount: true,
+                currency: true,
+                status: true,
+                razorpayPaymentId: true,
+                razorpayInvoiceId: true, // null when Razorpay didn't provide one
+                paidAt: true,
+                createdAt: true,
+              },
+            },
           },
-
-          orderBy: {
-            createdAt: "desc",
-          },
-
-          take: 1,
         },
       },
     });

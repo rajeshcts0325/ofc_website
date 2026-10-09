@@ -166,6 +166,15 @@ export default function PaymentDetails() {
         loadPlans();
     }, [isActive, canPay]);
 
+    const waitForActivation = async () => {
+        for (let i = 0; i < 10; i++) {
+            await checkAuth();
+            if (useAuthStore.getState().user?.onboardingStatus === "ACTIVE") return true;
+            await new Promise((r) => setTimeout(r, 3000));
+        }
+        return false;
+    };
+
     /* ---------- payment ---------- */
     const handlePayment = async () => {
         if (!canPay) return toast.error(KYC_REQUIRED_MSG, { id: "kyc-required" });
@@ -174,26 +183,24 @@ export default function PaymentDetails() {
 
         setPaying(true);
         try {
-            const orderRes = await fetch("/api/v1/subscription/create-subscription", {
+            const res = await fetch("/api/v1/subscription/create-subscription", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
                 body: JSON.stringify({ planId: selectedPlanId }),
             });
-            const orderData = await orderRes.json();
-            if (!orderRes.ok || !orderData.success) {
-                throw new Error(orderData.message || "Failed to create payment order");
+            const json = await res.json();
+            if (!res.ok || !json.success) {
+                throw new Error(json.message || "Failed to create subscription");
             }
 
-            const order = orderData.data;
+            const sub = json.data;
 
             const razorpay = new window.Razorpay({
-                key: order.razorpayKey,
-                amount: order.amount,
-                currency: order.currency,
+                key: sub.razorpayKey,
+                subscription_id: sub.razorpaySubscriptionId, // NOT order_id; no amount/currency either
                 name: "Off Contract",
-                description: order.planName,
-                order_id: order.razorpayOrderId,
+                description: sub.planName,
 
                 handler: async (response: any) => {
                     try {
@@ -202,9 +209,9 @@ export default function PaymentDetails() {
                             headers: { "Content-Type": "application/json" },
                             credentials: "include",
                             body: JSON.stringify({
-                                subscriptionId: order.subscriptionId,
-                                razorpayOrderId: response.razorpay_order_id,
+                                subscriptionId: sub.subscriptionId,
                                 razorpayPaymentId: response.razorpay_payment_id,
+                                razorpaySubscriptionId: response.razorpay_subscription_id,
                                 razorpaySignature: response.razorpay_signature,
                             }),
                         });
@@ -213,8 +220,18 @@ export default function PaymentDetails() {
                             throw new Error(verifyData.message || "Payment verification failed");
                         }
 
-                        toast.success("Payment successful. Your account is now active.");
-                        await checkAuth(); // onboardingStatus -> ACTIVE
+                        if (verifyData.data.activated) {
+                            toast.success("Payment successful. Your account is now active.");
+                            await checkAuth();
+                        } else {
+                            // payment verified, activation still being confirmed by the webhook
+                            toast.loading("Payment received. Activating your account...", { id: "activating" });
+                            const ok = await waitForActivation();
+                            toast.dismiss("activating");
+                            ok
+                                ? toast.success("Your account is now active.")
+                                : toast("Payment received. Activation is taking longer than usual; please refresh shortly.");
+                        }
                     } catch (err: any) {
                         toast.error(err.message || "Payment verification failed");
                     } finally {
@@ -230,6 +247,10 @@ export default function PaymentDetails() {
                     contact: user?.profile?.phone || "",
                 },
                 theme: { color: "#111827" },
+            });
+
+            razorpay.on("payment.failed", (resp: any) => {
+                toast.error(resp?.error?.description || "Payment failed. Please try again.");
             });
 
             razorpay.open();
@@ -254,7 +275,8 @@ export default function PaymentDetails() {
     const paymentRows: [string, string][] = [
         ["Payment Status", orNA(payment?.status)],
         ["Payment ID", orNA(payment?.razorpayPaymentId)],
-        ["Razorpay Order ID", orNA(payment?.razorpayOrderId)],
+        ["Subscription ID", orNA(activeSubscription?.razorpaySubscriptionId)],
+        ["Razorpay Invoice ID", orNA(payment?.razorpayInvoiceId)],
         ["Payment Date & Time", fmtDateTime(payment?.paidAt || payment?.createdAt)],
         ["Amount Paid", fmtMoney(paidAmount)],
         ["Currency", orNA(payment?.currency || "INR")],
@@ -303,7 +325,8 @@ export default function PaymentDetails() {
             title: "Payment Information",
             rows: [
                 ["Payment ID", orNA(payment?.razorpayPaymentId)],
-                ["Razorpay Order ID", orNA(payment?.razorpayOrderId)],
+                ["Subscription ID", orNA(activeSubscription?.razorpaySubscriptionId)],
+                ["Razorpay Invoice ID", orNA(payment?.razorpayInvoiceId)],
                 ["Payment Date", fmtDateTime(payment?.paidAt || payment?.createdAt)],
                 ["Amount Paid", fmtMoney(paidAmount)],
                 ["Payment Status", orNA(payment?.status)],
@@ -334,7 +357,8 @@ export default function PaymentDetails() {
         ["Receipt Date", fmtDate(receiptDate)],
         ["Payment Time", fmtDateTime(receiptDate)],
         ["Payment ID", orNA(payment?.razorpayPaymentId)],
-        ["Order ID", orNA(payment?.razorpayOrderId)],
+        ["Subscription ID", orNA(activeSubscription?.razorpaySubscriptionId)],
+        ["Invoice ID", orNA(payment?.razorpayInvoiceId)],
         ["Payment Mode", "Online (Razorpay)"],
         ["Status", isPaid ? "PAID" : orNA(payment?.status)],
     ];
