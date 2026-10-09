@@ -322,7 +322,7 @@ model Subscription {
   status                 SubscriptionStatus @default(PENDING)
   amount                 Float
   billingCycle           BillingCycle
-  razorpaySubscriptionId String?
+  razorpaySubscriptionId String?             @unique
   startDate              DateTime?
   endDate                DateTime?
   cancelledAt            DateTime?
@@ -337,7 +337,7 @@ model Subscription {
   @@index([userId])
   @@index([planId])
   @@index([status])
-  @@index([razorpaySubscriptionId])
+  
 }
 
 ////////////////////////////
@@ -367,6 +367,7 @@ model Payment {
   @@index([subscriptionId])
   @@index([status])
   @@index([razorpayOrderId])
+  @@index([razorpayInvoiceId])
 }
 
 
